@@ -4,7 +4,7 @@
 // @version      1.0
 // @description  自动保存每章节的题目和答案，并下载为 JSON 文件
 // @author       You
-// @match        *://gssxu.yuketang.cn/*
+// @match        *://yuketang.cn/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // ==/UserScript==

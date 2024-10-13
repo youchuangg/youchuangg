@@ -1,0 +1,137 @@
+// ==UserScript==
+// @name         自动获取并保存习题和答案
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  自动保存每章节的题目和答案，并下载为 JSON 文件
+// @author       You
+// @match        *://gssxu.yuketang.cn/*
+// @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // 创建可视化窗口
+    let visualWindow = document.createElement("div");
+    visualWindow.style.width = "400px";
+    visualWindow.style.height = "300px";
+    visualWindow.style.position = "fixed";
+    visualWindow.style.bottom = "10px";
+    visualWindow.style.right = "10px";
+    visualWindow.style.backgroundColor = "white";
+    visualWindow.style.border = "1px solid black";
+    visualWindow.style.overflowY = "scroll";
+    visualWindow.style.zIndex = "9999";
+    visualWindow.style.padding = "10px";
+    visualWindow.innerHTML = "<h4>调试输出:</h4>";
+    document.body.appendChild(visualWindow);
+
+    function logToWindow(message) {
+        let para = document.createElement("p");
+        para.style.margin = "5px 0";
+        para.innerText = message;
+        visualWindow.appendChild(para);
+    }
+
+    logToWindow("脚本已启动，开始抓取章节数据...");
+
+    function getXTBZ() {
+        let xtbz = document.querySelector('meta[name="xtbz"]')?.content || "your_xtbz_value"; // 假设从meta标签中获取XTBZ
+        logToWindow("XTBZ 参数: " + xtbz);
+        return xtbz;
+    }
+
+    let chapterIDs = [4770064, 4770065, 4770066, 4770067, 4770068, 4770069, 4770070, 4770071, 4770072, 4770073, 4770074, 4770075, 4770076, 4770077, 4770078, 4770079, 4770080, 4770081, 4770082, 4770083, 4770084, 4770085];
+    let courseID = 11657029;
+
+    let allProblems = {}; // 用于保存所有章节的习题
+
+    // 函数用于提取HTML中的纯文本
+    function extractTextFromHTML(htmlString) {
+        let parser = new DOMParser();
+        let doc = parser.parseFromString(htmlString, 'text/html');
+        return doc.body.textContent || "";  // 提取文本内容
+    }
+
+    let completedRequests = 0; // 记录完成的请求数量
+
+    chapterIDs.forEach(function(chapterID) {
+        let url = `https://gssxu.yuketang.cn/mooc-api/v1/lms/exercise/get_exercise_list/${chapterID}/${courseID}/?term=latest&uv_id=****`;
+        logToWindow("正在请求章节ID: " + chapterID + "，URL: " + url);
+
+        let xtbzValue = getXTBZ();  // 获取XTBZ参数
+
+        GM_xmlhttpRequest({
+            method: "GET",
+            url: url,
+            headers: {
+                'XTBZ': xtbzValue,
+                'Content-Type': 'application/json'
+            },
+            onload: function(response) {
+                logToWindow(`章节 ${chapterID} 状态: ${response.status}`);
+
+                if (response.status === 200) {
+                    try {
+                        let jsonResponse = JSON.parse(response.responseText);
+                        logToWindow(`章节 ${chapterID} 响应: ${response.responseText}`);
+
+                        if (jsonResponse.success && jsonResponse.data && jsonResponse.data.problems) {
+                            let problems = jsonResponse.data.problems;
+                            if (problems.length > 0) {
+                                allProblems[`chapter_${chapterID}`] = []; // 创建章节数组
+                                problems.forEach(problem => {
+                                    let question = extractTextFromHTML(problem.content.Body);  // 解析HTML
+                                    let correctAnswers = problem.user.answer;  // 获取正确答案
+                                    logToWindow(`章节 ${chapterID}: 题目: ${question}`);
+                                    logToWindow(`章节 ${chapterID}: 正确答案: ${correctAnswers}`);
+
+                                    // 保存题目和答案到章节数组
+                                    allProblems[`chapter_${chapterID}`].push({
+                                        question: question,
+                                        answers: correctAnswers
+                                    });
+                                });
+                            } else {
+                                logToWindow(`章节 ${chapterID}: 未找到题目`);
+                            }
+                        } else {
+                            logToWindow(`章节 ${chapterID}: 返回数据无效`);
+                        }
+                    } catch (e) {
+                        logToWindow(`解析章节 ${chapterID} 响应时出错: ${e}`);
+                    }
+                } else {
+                    logToWindow(`章节 ${chapterID}: 请求失败，状态码: ${response.status}`);
+                }
+
+                completedRequests++; // 完成请求数量加1
+
+                // 当所有章节请求完成后，保存所有习题到本地并下载
+                if (completedRequests === chapterIDs.length) {
+                    downloadJSON(allProblems);
+                }
+            },
+            onerror: function() {
+                logToWindow(`章节 ${chapterID}: 请求失败`);
+            }
+        });
+    });
+
+    // 下载 JSON 文件的函数
+    function downloadJSON(data) {
+        const jsonString = JSON.stringify(data, null, 2); // 格式化 JSON 字符串
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "problems.json"; // 文件名
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url); // 释放 URL 对象
+        logToWindow("所有章节习题已保存为 JSON 文件并开始下载.");
+    }
+})();
